@@ -17,10 +17,13 @@
 package org.jetbrains.kotlin.js.translate.callTranslator
 
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
+import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.diagnostics.DiagnosticUtils
-import org.jetbrains.kotlin.descriptors.ReceiverParameterDescriptor
-import org.jetbrains.kotlin.js.backend.ast.*
+import org.jetbrains.kotlin.js.backend.ast.JsBlock
+import org.jetbrains.kotlin.js.backend.ast.JsConditional
+import org.jetbrains.kotlin.js.backend.ast.JsExpression
+import org.jetbrains.kotlin.js.backend.ast.JsNullLiteral
 import org.jetbrains.kotlin.js.translate.context.TranslationContext
 import org.jetbrains.kotlin.js.translate.reference.CallArgumentTranslator
 import org.jetbrains.kotlin.js.translate.reference.ReferenceTranslator
@@ -99,9 +102,6 @@ fun TranslationContext.getCallInfo(
     return FunctionCallInfo(callInfo, argumentsInfo)
 }
 
-private fun boxIfNeedeed(v: ReceiverValue?, d: ReceiverParameterDescriptor?, r: JsExpression?): JsExpression? {
-    return r?.let { TranslationUtils.boxCastIfNeeded(it, v?.type, d?.type) }
-}
 
 private fun TranslationContext.getDispatchReceiver(receiverValue: ReceiverValue): JsExpression {
     return getDispatchReceiver(getReceiverParameterForReceiver(receiverValue))
@@ -134,6 +134,7 @@ private fun TranslationContext.createCallInfo(
     }
 
     var dispatchReceiver = getDispatchReceiver()
+    var dispatchReceiverType = resolvedCall.dispatchReceiver?.type
     var extensionReceiver = getExtensionReceiver()
     var notNullConditional: JsConditional? = null
 
@@ -154,16 +155,19 @@ private fun TranslationContext.createCallInfo(
         val container = resolvedCall.resultingDescriptor.containingDeclaration
         if (DescriptorUtils.isObject(container)) {
             dispatchReceiver = ReferenceTranslator.translateAsValueReference(container, this)
+            dispatchReceiverType = (container as ClassDescriptor).defaultType
         }
     }
 
-    dispatchReceiver = boxIfNeedeed(resolvedCall.dispatchReceiver,
-                                    resolvedCall.candidateDescriptor.dispatchReceiverParameter,
-                                    dispatchReceiver)
+    if (dispatchReceiverType != null) {
+        dispatchReceiver = dispatchReceiver?.let {
+            TranslationUtils.coerce(this, it, dispatchReceiverType!!)
+        }
+    }
 
-    extensionReceiver = boxIfNeedeed(resolvedCall.extensionReceiver,
-                                     resolvedCall.candidateDescriptor.extensionReceiverParameter,
-                                     extensionReceiver)
+    extensionReceiver = extensionReceiver?.let {
+        TranslationUtils.coerce(this, it, resolvedCall.candidateDescriptor.extensionReceiverParameter!!.type)
+    }
 
 
     return object : AbstractCallInfo(), CallInfo {

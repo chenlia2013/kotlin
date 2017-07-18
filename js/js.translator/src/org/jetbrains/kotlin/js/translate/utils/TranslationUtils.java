@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.descriptors.impl.LocalVariableAccessorDescriptor;
 import org.jetbrains.kotlin.descriptors.impl.LocalVariableDescriptor;
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation;
 import org.jetbrains.kotlin.js.backend.ast.*;
+import org.jetbrains.kotlin.js.backend.ast.metadata.MetadataProperties;
 import org.jetbrains.kotlin.js.translate.context.Namer;
 import org.jetbrains.kotlin.js.translate.context.TemporaryConstVariable;
 import org.jetbrains.kotlin.js.translate.context.TranslationContext;
@@ -40,10 +41,9 @@ import org.jetbrains.kotlin.resolve.DescriptorUtils;
 import org.jetbrains.kotlin.resolve.descriptorUtil.DescriptorUtilsKt;
 import org.jetbrains.kotlin.resolve.inline.InlineUtil;
 import org.jetbrains.kotlin.types.KotlinType;
-import org.jetbrains.kotlin.types.TypeUtils;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.jetbrains.kotlin.js.backend.ast.JsBinaryOperator.*;
 import static org.jetbrains.kotlin.js.translate.utils.BindingUtils.getCallableDescriptorForOperationExpression;
@@ -179,7 +179,11 @@ public final class TranslationUtils {
         else {
             receiver = context.getDispatchReceiver(JsDescriptorUtils.getReceiverParameterForDeclaration(containingDescriptor));
         }
-        return new JsNameRef(backingFieldName, receiver);
+
+        JsNameRef result = new JsNameRef(backingFieldName, receiver);
+        MetadataProperties.setType(result, getReturnTypeForCoercion(descriptor));
+
+        return result;
     }
 
     @NotNull
@@ -198,10 +202,9 @@ public final class TranslationUtils {
         if (initializer != null) {
             jsInitExpression = Translation.translateAsExpression(initializer, context);
 
-            KotlinType propertyType = BindingContextUtils.getNotNull(context.bindingContext(), BindingContext.VARIABLE, declaration).getType();
-            KotlinType initType = context.bindingContext().getType(initializer);
-
-            jsInitExpression = boxCastIfNeeded(jsInitExpression, initType, propertyType);
+            KotlinType propertyType = BindingContextUtils.getNotNull(
+                    context.bindingContext(), BindingContext.VARIABLE, declaration).getType();
+            jsInitExpression = coerce(context, jsInitExpression, propertyType);
         }
         return jsInitExpression;
     }
@@ -387,28 +390,68 @@ public final class TranslationUtils {
                ModalityKt.isOverridable(descriptor);
     }
 
-    private static boolean overridesReturnAny(CallableDescriptor c) {
-        KotlinType returnType = c.getOriginal().getReturnType();
-        assert returnType != null;
-        if (KotlinBuiltIns.isAnyOrNullableAny(returnType) || TypeUtils.isTypeParameter(returnType)) return true;
-        for (CallableDescriptor o : c.getOverriddenDescriptors()) {
-            if (overridesReturnAny(o)) return true;
+    @NotNull
+    public static KotlinType getReturnTypeForCoercion(@NotNull CallableDescriptor descriptor) {
+        descriptor = descriptor.getOriginal();
+        Collection<? extends CallableDescriptor> overridden = descriptor.getOverriddenDescriptors();
+        if (overridden.isEmpty()) {
+            return descriptor.getReturnType() != null ?
+                   descriptor.getReturnType() :
+                   DescriptorUtils.getContainingModule(descriptor).getBuiltIns().getAnyType();
         }
-        return false;
-    }
 
-
-    public static boolean shouldBoxReturnValue(CallableDescriptor c) {
-        return overridesReturnAny(c) || c instanceof CallableMemberDescriptor && ModalityKt.isOverridable((CallableMemberDescriptor)c);
+        Set<KotlinType> typesFromOverriddenCallables = overridden.stream()
+                .map(TranslationUtils::getReturnTypeForCoercion)
+                .collect(Collectors.toSet());
+        return typesFromOverriddenCallables.size() == 1
+               ? typesFromOverriddenCallables.iterator().next()
+               : DescriptorUtils.getContainingModule(descriptor).getBuiltIns().getAnyType();
     }
 
     @NotNull
-    public static JsExpression boxCastIfNeeded(@NotNull JsExpression e, @Nullable KotlinType castFrom, @Nullable KotlinType castTo) {
-        if (castFrom != null && KotlinBuiltIns.isCharOrNullableChar(castFrom) &&
-            castTo != null && !KotlinBuiltIns.isCharOrNullableChar(castTo)
-        ) {
-            return JsAstUtils.charToBoxedChar(e);
+    public static JsExpression coerce(@NotNull TranslationContext context, @NotNull JsExpression value, @NotNull KotlinType to) {
+        KotlinType from = MetadataProperties.getType(value);
+        if (from == null) {
+            from = context.getCurrentModule().getBuiltIns().getAnyType();
         }
-        return e;
+
+        if (from.equals(to)) return value;
+
+        if (KotlinBuiltIns.isCharOrNullableChar(to)) {
+            if (!KotlinBuiltIns.isCharOrNullableChar(from) && !(value instanceof JsNullLiteral)) {
+                value = JsAstUtils.boxedCharToChar(value);
+            }
+        }
+        else if (KotlinBuiltIns.isUnit(to)) {
+            if (!KotlinBuiltIns.isUnit(from)) {
+                value = unitToVoid(value);
+            }
+        }
+        else if (KotlinBuiltIns.isCharOrNullableChar(from)) {
+            if (!KotlinBuiltIns.isCharOrNullableChar(to) && !(value instanceof JsNullLiteral)) {
+                value = JsAstUtils.charToBoxedChar(value);
+            }
+        }
+        else if (KotlinBuiltIns.isUnit(from)) {
+            if (!KotlinBuiltIns.isUnit(to) && !MetadataProperties.isUnit(value)) {
+                ClassDescriptor unit = context.getCurrentModule().getBuiltIns().getUnit();
+                JsExpression unitRef = ReferenceTranslator.translateAsValueReference(unit, context);
+                value = JsAstUtils.newSequence(Arrays.asList(value, unitRef));
+            }
+        }
+
+        MetadataProperties.setType(value, to);
+        return value;
+    }
+
+    @NotNull
+    private static JsExpression unitToVoid(@NotNull JsExpression expression) {
+        if (expression instanceof JsBinaryOperation) {
+            JsBinaryOperation binary = (JsBinaryOperation) expression;
+            if (binary.getOperator() == JsBinaryOperator.COMMA && MetadataProperties.isUnit(binary.getArg2())) {
+                return binary.getArg1();
+            }
+        }
+        return expression;
     }
 }

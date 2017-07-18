@@ -20,7 +20,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns;
 import org.jetbrains.kotlin.descriptors.*;
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor;
 import org.jetbrains.kotlin.descriptors.annotations.KotlinRetention;
@@ -146,9 +145,10 @@ public final class ExpressionVisitor extends TranslatorVisitor<JsNode> {
             assert returnedType != null : "Resolved return expression is expected to have type: " +
                                           PsiUtilsKt.getTextWithLocation(jetReturnExpression);
 
-            if (KotlinBuiltIns.isCharOrNullableChar(returnedType) &&
-                TranslationUtils.shouldBoxReturnValue((CallableDescriptor)context.getDeclarationDescriptor())) {
-                jsReturnExpression = JsAstUtils.charToBoxedChar(jsReturnExpression);
+            CallableDescriptor containingCallable = (CallableDescriptor) context.getDeclarationDescriptor();
+            if (containingCallable != null) {
+                jsReturnExpression = TranslationUtils.coerce(context, jsReturnExpression,
+                                                             TranslationUtils.getReturnTypeForCoercion(containingCallable));
             }
 
             jsReturn = new JsReturn(jsReturnExpression);
@@ -245,10 +245,7 @@ public final class ExpressionVisitor extends TranslatorVisitor<JsNode> {
 
         if (lhs instanceof DoubleColonLHS.Expression && !((DoubleColonLHS.Expression) lhs).isObjectQualifier()) {
             JsExpression receiver = translateAsExpression(receiverExpression, context);
-            KotlinType type = context.bindingContext().getType(receiverExpression);
-            if (type != null && KotlinBuiltIns.isChar(type)) {
-                receiver = JsAstUtils.charToBoxedChar(receiver);
-            }
+            receiver = TranslationUtils.coerce(context, receiver, context.getCurrentModule().getBuiltIns().getAnyType());
             return new JsInvocation(context.namer().kotlin(GET_KCLASS_FROM_EXPRESSION), receiver);
         }
 

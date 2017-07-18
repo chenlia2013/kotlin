@@ -17,7 +17,6 @@
 package org.jetbrains.kotlin.js.translate.reference
 
 import org.jetbrains.kotlin.backend.common.isBuiltInSuspendCoroutineOrReturn
-import org.jetbrains.kotlin.builtins.DefaultBuiltIns
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.builtins.PrimitiveType
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
@@ -36,8 +35,8 @@ import org.jetbrains.kotlin.js.translate.utils.AnnotationsUtils
 import org.jetbrains.kotlin.js.translate.utils.JsAstUtils
 import org.jetbrains.kotlin.js.translate.utils.TranslationUtils
 import org.jetbrains.kotlin.js.translate.utils.getReferenceToJsClass
-import org.jetbrains.kotlin.psi.Call
 import org.jetbrains.kotlin.psi.ValueArgument
+import org.jetbrains.kotlin.resolve.calls.components.isVararg
 import org.jetbrains.kotlin.resolve.calls.model.DefaultValueArgument
 import org.jetbrains.kotlin.resolve.calls.model.ResolvedCall
 import org.jetbrains.kotlin.resolve.calls.model.ResolvedValueArgument
@@ -185,18 +184,14 @@ class CallArgumentTranslator private constructor(
             val parenthisedArgumentExpression = arg.getArgumentExpression()
 
             val param = argsToParameters[arg]!!.original
-            val parameterType = if (resolvedCall.call.callType == Call.CallType.INVOKE) {
-                DefaultBuiltIns.Instance.anyType
+            val parameterType = param.varargElementType ?: param.type
+
+            var argJs = Translation.translateAsExpression(parenthisedArgumentExpression!!, argumentContext)
+            if (!param.isVararg || arg.getSpreadElement() == null) {
+                argJs = TranslationUtils.coerce(context, argJs, parameterType)
             }
-            else {
-                param.varargElementType ?: param.type
-            }
 
-            val argType = context.bindingContext().getType(parenthisedArgumentExpression!!)
-
-            val argJs = Translation.translateAsExpression(parenthisedArgumentExpression, argumentContext)
-
-            arg to TranslationUtils.boxCastIfNeeded(argJs, argType, parameterType)
+            arg to argJs
         }
 
         val resolvedOrder = resolvedCall.valueArgumentsByIndex.orEmpty()

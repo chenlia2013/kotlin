@@ -146,11 +146,7 @@ public final class FunctionBodyTranslator extends AbstractTranslator {
 
             assert declaration.getBodyExpression() != null;
             assert descriptor.getReturnType() != null;
-            KotlinType bodyType = context().bindingContext().getType(declaration.getBodyExpression());
-            if (bodyType == null && KotlinBuiltIns.isCharOrNullableChar(descriptor.getReturnType()) ||
-                bodyType != null && KotlinBuiltIns.isCharOrNullableChar(bodyType) && TranslationUtils.shouldBoxReturnValue(descriptor)) {
-                node = JsAstUtils.charToBoxedChar((JsExpression) node);
-            }
+            node = TranslationUtils.coerce(context(), (JsExpression) node, TranslationUtils.getReturnTypeForCoercion(descriptor));
 
             JsReturn jsReturn = new JsReturn((JsExpression) node);
             jsReturn.setSource(declaration.getBodyExpression());

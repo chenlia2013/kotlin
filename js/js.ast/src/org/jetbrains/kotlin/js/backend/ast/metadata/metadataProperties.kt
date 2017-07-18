@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.js.backend.ast.*
 import org.jetbrains.kotlin.resolve.inline.InlineStrategy
+import org.jetbrains.kotlin.types.KotlinType
 
 var JsName.staticRef: JsNode? by MetadataProperty(default = null)
 
@@ -55,6 +56,10 @@ var JsInvocation.boxing: Boolean by MetadataProperty(default = false)
 var JsVars.exportedPackage: String? by MetadataProperty(default = null)
 
 var JsExpressionStatement.exportedTag: String? by MetadataProperty(default = null)
+
+var JsExpression.type: KotlinType? by MetadataProperty(default = null)
+
+var JsExpression.isUnit: Boolean by MetadataProperty(default = false)
 
 /**
  * For function and lambda bodies indicates what declaration corresponds to.
