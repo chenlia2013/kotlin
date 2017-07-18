@@ -9,6 +9,5 @@ class AssignmentAsExpression {
         field = field2
         val j: Int
         j = 0
-        val i = j
     }
 }

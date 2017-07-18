@@ -58,7 +58,6 @@ internal class A {
 
         }
 
-        val iimpl = anonymousLocal1
         if (true) {
             anonymousLocal2 = i as I
         }

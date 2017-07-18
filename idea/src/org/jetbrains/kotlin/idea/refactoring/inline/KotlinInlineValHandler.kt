@@ -56,6 +56,10 @@ class KotlinInlineValHandler : InlineActionHandler() {
     }
 
     override fun inlineElement(project: Project, editor: Editor?, element: PsiElement) {
+        inlineElement(project, editor, element, allowUnused = false)
+    }
+
+    fun inlineElement(project: Project, editor: Editor?, element: PsiElement, allowUnused: Boolean) {
         val declaration = element as KtProperty
         val name = declaration.name!!
 
@@ -73,7 +77,7 @@ class KotlinInlineValHandler : InlineActionHandler() {
 
         val (referenceExpressions, conflicts) = findUsages(declaration)
 
-        if (referenceExpressions.isEmpty() && conflicts.isEmpty) {
+        if (referenceExpressions.isEmpty() && conflicts.isEmpty && !allowUnused) {
             val kind = if (declaration.isLocal) "Variable" else "Property"
             return showErrorHint(project, editor, "$kind '$name' is never used")
         }
