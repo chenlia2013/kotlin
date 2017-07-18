@@ -114,7 +114,7 @@ class JavaTypeResolver(
         val constructor = computeTypeConstructor(javaType, attr) ?: return null
         val isNullable = attr.isNullable()
 
-        if (lowerResult?.constructor === constructor && !javaType.isRaw && isNullable) {
+        if (lowerResult?.constructor == constructor && !javaType.isRaw && isNullable) {
             return lowerResult.makeNullableAsSpecified(true)
         }
 
