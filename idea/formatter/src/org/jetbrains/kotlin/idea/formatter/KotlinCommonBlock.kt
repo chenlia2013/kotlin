@@ -322,6 +322,7 @@ abstract class KotlinCommonBlock(
     private fun getWrappingStrategy(): WrappingStrategy {
         val commonSettings = settings.getCommonSettings(KotlinLanguage.INSTANCE)
         val elementType = node.elementType
+        val nodePsi = node.psi
 
         when {
             elementType === KtNodeTypes.VALUE_ARGUMENT_LIST ->
@@ -355,8 +356,9 @@ abstract class KotlinCommonBlock(
             elementType === KtNodeTypes.CLASS_BODY ->
                 return getWrappingStrategyForItemList(commonSettings.ENUM_CONSTANTS_WRAP, KtNodeTypes.ENUM_ENTRY)
 
-            elementType === KtNodeTypes.MODIFIER_LIST ->
-                when (node.treeParent.psi) {
+            elementType === KtNodeTypes.MODIFIER_LIST -> {
+                val parent = node.treeParent.psi
+                when (parent) {
                     is KtParameter ->
                         return getWrappingStrategyForItemList(commonSettings.PARAMETER_ANNOTATION_WRAP,
                                                               KtNodeTypes.ANNOTATION_ENTRY,
@@ -368,16 +370,30 @@ abstract class KotlinCommonBlock(
                     is KtNamedFunction ->
                         return getWrappingStrategyForItemList(commonSettings.METHOD_ANNOTATION_WRAP,
                                                               KtNodeTypes.ANNOTATION_ENTRY)
+
+                    is KtProperty ->
+                        return getWrappingStrategyForItemList(if (parent.isLocal)
+                                                                  commonSettings.VARIABLE_ANNOTATION_WRAP
+                                                              else
+                                                                  commonSettings.FIELD_ANNOTATION_WRAP,
+                                                              KtNodeTypes.ANNOTATION_ENTRY)
                 }
+            }
 
             elementType === KtNodeTypes.VALUE_PARAMETER ->
                 return wrapAfterAnnotation(commonSettings.PARAMETER_ANNOTATION_WRAP)
 
-            node.psi is KtClassOrObject ->
+            nodePsi is KtClassOrObject ->
                 return wrapAfterAnnotation(commonSettings.CLASS_ANNOTATION_WRAP)
 
-            node.psi is KtNamedFunction ->
+            nodePsi is KtNamedFunction ->
                 return wrapAfterAnnotation(commonSettings.METHOD_ANNOTATION_WRAP)
+
+            nodePsi is KtProperty ->
+                return wrapAfterAnnotation(if (nodePsi.isLocal)
+                                               commonSettings.VARIABLE_ANNOTATION_WRAP
+                                           else
+                                               commonSettings.FIELD_ANNOTATION_WRAP)
         }
 
         return WrappingStrategy.NoWrapping
